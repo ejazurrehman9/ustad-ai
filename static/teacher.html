@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ustad AI — Teacher Panel</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f172a;--panel:#1e293b;--border:#334155;
+  --accent:#6366f1;--accent2:#8b5cf6;
+  --text:#e2e8f0;--muted:#94a3b8;--subtle:#475569;
+  --green:#4ade80;--red:#f87171;--yellow:#fbbf24;
+}
+body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--panel);padding:12px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.logo{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+header h1{font-size:17px;font-weight:700}
+header p{font-size:11px;color:var(--muted)}
+header a{margin-left:auto;text-decoration:none}
+.btn-outline{background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 14px;color:var(--muted);font-size:12px;cursor:pointer;transition:all .2s}
+.btn-outline:hover{border-color:var(--accent);color:#a5b4fc}
+
+/* Login overlay */
+#login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:50}
+.login-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:32px;width:340px;text-align:center}
+.login-card .icon{font-size:40px;margin-bottom:12px}
+.login-card h2{font-size:18px;margin-bottom:6px}
+.login-card p{font-size:13px;color:var(--muted);margin-bottom:20px}
+.login-card input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;margin-bottom:12px;transition:border-color .2s}
+.login-card input:focus{border-color:var(--accent)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:10px;padding:10px 20px;color:white;font-size:14px;cursor:pointer;width:100%;font-weight:600;transition:opacity .2s}
+.btn-primary:hover{opacity:.85}
+.error-msg{color:var(--red);font-size:12px;margin-top:8px}
+
+/* Main layout */
+#main{display:none;padding:24px;max-width:900px;margin:0 auto;gap:20px;flex-direction:column}
+#main.visible{display:flex}
+
+/* Cards */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px}
+.card-header{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.card-header .card-icon{font-size:20px}
+.card-header h2{font-size:15px;font-weight:700}
+.card-header .count{margin-left:auto;background:#1e1b4b;color:#a5b4fc;padding:2px 10px;border-radius:20px;font-size:12px}
+
+/* Stats row */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.stat-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+.stat-box .stat-val{font-size:28px;font-weight:700;color:#a5b4fc}
+.stat-box .stat-lbl{font-size:11px;color:var(--muted);margin-top:4px}
+
+/* Form fields */
+label{font-size:12px;color:var(--muted);margin-bottom:4px;display:block}
+input[type="text"], select, textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text);font-size:13px;outline:none;transition:border-color .2s;font-family:inherit}
+input[type="text"]:focus, select:focus, textarea:focus{border-color:var(--accent)}
+textarea{resize:vertical;min-height:100px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group{margin-bottom:12px}
+.doc-type-row{display:flex;gap:8px;flex-wrap:wrap}
+.dtype-btn{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--muted);cursor:pointer;transition:all .2s}
+.dtype-btn.selected{background:#1e1b4b;border-color:var(--accent);color:#a5b4fc}
+
+/* File upload area */
+.file-drop{border:2px dashed var(--border);border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:all .2s;margin-top:8px}
+.file-drop:hover,.file-drop.dragover{border-color:var(--accent);background:#1e1b4b20}
+.file-drop .icon{font-size:28px;margin-bottom:8px}
+.file-drop p{font-size:13px;color:var(--muted)}
+.file-drop .hint{font-size:11px;color:var(--subtle);margin-top:4px}
+#file-input{display:none}
+#file-name{font-size:12px;color:var(--green);margin-top:8px}
+
+/* Doc list */
+.doc-list{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto}
+.doc-item{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.doc-item .doc-icon{font-size:18px;flex-shrink:0}
+.doc-item .doc-info{flex:1;min-width:0}
+.doc-item .doc-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.doc-item .doc-meta{font-size:11px;color:var(--muted);margin-top:2px}
+.doc-badge{padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
+.badge-lecture{background:#1e3a5f;color:#7dd3fc}
+.badge-practical{background:#1c2a1e;color:#86efac}
+.badge-syllabus{background:#2d1e3a;color:#c4b5fd}
+.badge-formula{background:#2a1e1e;color:#fca5a5}
+.del-btn{background:none;border:none;color:var(--subtle);cursor:pointer;font-size:16px;padding:4px;border-radius:6px;transition:all .2s}
+.del-btn:hover{color:var(--red);background:#2d1010}
+
+/* Subject list */
+.subject-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.subject-card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:all .2s}
+.subject-card:hover,.subject-card.active{border-color:var(--accent);background:#1e1b4b30}
+.subject-card .s-icon{font-size:22px;margin-bottom:6px}
+.subject-card .s-name{font-size:13px;font-weight:600}
+.subject-card .s-slug{font-size:11px;color:var(--muted);margin-top:2px}
+.subject-card .s-docs{font-size:11px;color:var(--green);margin-top:4px}
+
+/* Status bar */
+#status-bar{background:var(--panel);border-top:1px solid var(--border);padding:8px 20px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;position:fixed;bottom:0;left:0;right:0}
+#status-bar .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+#status-msg{flex:1}
+
+/* Toast */
+#toast{position:fixed;bottom:48px;left:50%;transform:translateX(-50%) translateY(10px);background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:8px 18px;font-size:12px;color:var(--text);opacity:0;transition:all .3s;pointer-events:none;z-index:200}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-overlay">
+  <div class="login-card">
+    <div class="icon">👩‍🏫</div>
+    <h2>Teacher Panel</h2>
+    <p>Enter your teacher key to manage the curriculum and knowledge base.</p>
+    <input type="password" id="key-input" placeholder="Teacher key..." onkeydown="if(e.key==='Enter')login()"/>
+    <button class="btn-primary" onclick="login()">Login →</button>
+    <div class="error-msg" id="login-error"></div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">👩‍🏫</div>
+  <div>
+    <h1>Teacher Panel</h1>
+    <p>Curriculum & Knowledge Base Management</p>
+  </div>
+  <a href="/"><button class="btn-outline">← Student Portal</button></a>
+</header>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- Stats -->
+  <div class="card">
+    <div class="card-header"><span class="card-icon">📊</span><h2>Dashboard</h2></div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="stat-val" id="stat-sessions">—</div><div class="stat-lbl">Active Sessions</div></div>
+      <div class="stat-box"><div class="stat-val" id="stat-subjects">—</div><div class="stat-lbl">Subjects</div></div>
+      <div class="stat-box"><div class="stat-val" id="stat-docs">—</div><div class="stat-lbl">Documents Loaded</div></div>
+      <div class="stat-box"><div class="stat-val" id="stat-curr">it-101</div><div class="stat-lbl">Selected Subject</div></div>
+    </div>
+  </div>
+
+  <!-- Subject Selector -->
+  <div class="card">
+    <div class="card-header"><span class="card-icon">📚</span><h2>Select Subject to Manage</h2></div>
+    <div class="subject-grid" id="subject-grid">Loading...</div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:200px">
+        <label>New Subject Slug (e.g. chem-101)</label>
+        <input type="text" id="new-slug" placeholder="chem-101"/>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label>Subject Name</label>
+        <input type="text" id="new-name" placeholder="Chemistry"/>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label>Teacher Name</label>
+        <input type="text" id="new-teacher" placeholder="Mr. / Ms. ..."/>
+      </div>
+      <button class="btn-primary" style="width:auto;padding:9px 18px" onclick="addSubject()">+ Add Subject</button>
+    </div>
+  </div>
+
+  <!-- Upload -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">⬆️</span>
+      <h2>Upload Curriculum</h2>
+      <span class="count" id="curr-subject-badge">it-101</span>
+    </div>
+
+    <!-- Text upload -->
+    <div class="form-group">
+      <label>Document Title</label>
+      <input type="text" id="doc-title" placeholder="e.g. Chapter 3 — Digital Computer Systems"/>
+    </div>
+    <div class="form-group">
+      <label>Document Type</label>
+      <div class="doc-type-row" id="doc-type-row">
+        <span class="dtype-btn selected" onclick="setDocType('lecture',this)">📖 Lecture</span>
+        <span class="dtype-btn" onclick="setDocType('practical',this)">🔬 Practical</span>
+        <span class="dtype-btn" onclick="setDocType('syllabus',this)">📋 Syllabus</span>
+        <span class="dtype-btn" onclick="setDocType('formula',this)">📐 Formula</span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Paste Curriculum Text</label>
+      <textarea id="doc-content" placeholder="Paste your lecture notes, practical descriptions, formulas, or syllabus here..."></textarea>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+      <button class="btn-primary" style="width:auto;padding:9px 20px" onclick="uploadText()">Upload Text</button>
+      <span style="color:var(--subtle);font-size:12px">— or —</span>
+    </div>
+
+    <!-- File upload -->
+    <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()"
+         ondragover="event.preventDefault();this.classList.add('dragover')"
+         ondragleave="this.classList.remove('dragover')"
+         ondrop="handleDrop(event)">
+      <div class="icon">📂</div>
+      <p>Click or drag a <strong>.txt</strong> file here</p>
+      <div class="hint">Only plain text files (.txt) are supported</div>
+      <div id="file-name"></div>
+    </div>
+    <input type="file" id="file-input" accept=".txt" onchange="fileSelected(this)"/>
+    <button class="btn-primary" style="width:auto;padding:9px 20px;margin-top:10px" id="upload-file-btn" onclick="uploadFile()" disabled>Upload File</button>
+  </div>
+
+  <!-- Document List -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">📄</span>
+      <h2>Knowledge Base</h2>
+      <span class="count" id="doc-count">0 docs</span>
+    </div>
+    <div class="doc-list" id="doc-list"><div style="color:var(--subtle);font-size:13px;text-align:center;padding:20px">No documents loaded yet.</div></div>
+  </div>
+
+</div>
+
+<div id="status-bar">
+  <div class="dot"></div>
+  <span id="status-msg">Teacher Panel ready</span>
+</div>
+<div id="toast"></div>
+
+<script>
+let teacherKey = "";
+let selectedSubject = "it-101";
+let selectedDocType = "lecture";
+let selectedFile = null;
+
+const DOCTYPE_ICONS = { lecture:"📖", practical:"🔬", syllabus:"📋", formula:"📐", general:"📝" };
+const SUBJECT_ICONS = { "it-101":"💻","cs-201":"🖥️","math-101":"📐","bio-101":"🧬","phy-101":"⚛️","eng-101":"📝" };
+
+// ── Login ──────────────────────────────────────────────────────────────────
+async function login() {
+  const key = document.getElementById("key-input").value.trim();
+  if (!key) return;
+  // Test the key by calling /api/stats
+  const res = await fetch("/api/stats", { headers: { "x-teacher-key": key } });
+  if (res.ok) {
+    teacherKey = key;
+    document.getElementById("login-overlay").style.display = "none";
+    document.getElementById("main").classList.add("visible");
+    loadAll();
+  } else {
+    document.getElementById("login-error").textContent = "Wrong key. Try again.";
+  }
+}
+document.getElementById("key-input").addEventListener("keydown", e => { if(e.key==="Enter") login(); });
+
+// ── Load All ───────────────────────────────────────────────────────────────
+async function loadAll() {
+  await loadStats();
+  await loadSubjects();
+  await loadDocs();
+}
+
+async function loadStats() {
+  const res = await fetch("/api/stats", { headers: { "x-teacher-key": teacherKey } });
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById("stat-sessions").textContent = data.active_sessions;
+  document.getElementById("stat-subjects").textContent = data.subjects;
+  const total = Object.values(data.docs_per_subject).reduce((a,b)=>a+b, 0);
+  document.getElementById("stat-docs").textContent = total;
+}
+
+async function loadSubjects() {
+  const res = await fetch("/api/subjects");
+  if (!res.ok) return;
+  const data = await res.json();
+  const grid = document.getElementById("subject-grid");
+  grid.innerHTML = data.subjects.map(s => `
+    <div class="subject-card ${s.slug===selectedSubject?'active':''}" onclick="selectSubject('${s.slug}')">
+      <div class="s-icon">${SUBJECT_ICONS[s.slug]||"📚"}</div>
+      <div class="s-name">${s.subject_name}</div>
+      <div class="s-slug">${s.slug}</div>
+      <div class="s-docs" id="sdocs_${s.slug}">...</div>
+    </div>`).join("");
+}
+
+// ── Subject Selection ──────────────────────────────────────────────────────
+async function selectSubject(slug) {
+  selectedSubject = slug;
+  document.querySelectorAll(".subject-card").forEach(c => c.classList.remove("active"));
+  const card = document.querySelector(`.subject-card[onclick*="${slug}"]`);
+  if (card) card.classList.add("active");
+  document.getElementById("curr-subject-badge").textContent = slug;
+  document.getElementById("stat-curr").textContent = slug;
+  setStatus(`Subject: ${slug}`);
+  await loadDocs();
+}
+
+async function addSubject() {
+  const slug = document.getElementById("new-slug").value.trim();
+  const name = document.getElementById("new-name").value.trim();
+  const teacher = document.getElementById("new-teacher").value.trim();
+  if (!slug || !name) { showToast("Slug aur Subject Name required hai"); return; }
+  const res = await fetch("/api/subjects", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-teacher-key":teacherKey},
+    body: JSON.stringify({ slug, subject_name:name, teacher_name:teacher||"Teacher", persona_name:"EduMentor" })
+  });
+  if (res.ok) {
+    showToast(`✅ Subject '${slug}' added!`);
+    document.getElementById("new-slug").value="";
+    document.getElementById("new-name").value="";
+    document.getElementById("new-teacher").value="";
+    await loadSubjects();
+    await loadStats();
+  } else { showToast("Error adding subject"); }
+}
+
+// ── Document Type ──────────────────────────────────────────────────────────
+function setDocType(type, el) {
+  selectedDocType = type;
+  document.querySelectorAll(".dtype-btn").forEach(b=>b.classList.remove("selected"));
+  el.classList.add("selected");
+}
+
+// ── Upload Text ────────────────────────────────────────────────────────────
+async function uploadText() {
+  const title = document.getElementById("doc-title").value.trim();
+  const content = document.getElementById("doc-content").value.trim();
+  if (!title || !content) { showToast("Title aur content dono required hain"); return; }
+  setStatus("Uploading...");
+  const res = await fetch("/api/curriculum/upload", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-subject-id":selectedSubject,"x-teacher-key":teacherKey},
+    body: JSON.stringify({ title, content, doc_type:selectedDocType })
+  });
+  if (res.ok) {
+    const d = await res.json();
+    showToast(`✅ '${d.title}' uploaded (${d.chunks} chunks)`);
+    document.getElementById("doc-title").value="";
+    document.getElementById("doc-content").value="";
+    await loadDocs(); await loadStats();
+  } else { showToast("Upload failed"); }
+  setStatus("Ready");
+}
+
+// ── Upload File ────────────────────────────────────────────────────────────
+function fileSelected(input) {
+  selectedFile = input.files[0];
+  if (selectedFile) {
+    document.getElementById("file-name").textContent = "📎 " + selectedFile.name;
+    document.getElementById("upload-file-btn").disabled = false;
+  }
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById("file-drop").classList.remove("dragover");
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith(".txt")) {
+    selectedFile = file;
+    document.getElementById("file-name").textContent = "📎 " + file.name;
+    document.getElementById("upload-file-btn").disabled = false;
+  } else { showToast("Only .txt files supported"); }
+}
+async function uploadFile() {
+  if (!selectedFile) { showToast("Pehle file select karo"); return; }
+  const title = document.getElementById("doc-title").value.trim() || selectedFile.name.replace(".txt","");
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+  formData.append("title", title);
+  formData.append("doc_type", selectedDocType);
+  setStatus("Uploading file...");
+  const res = await fetch("/api/curriculum/upload-file", {
+    method:"POST",
+    headers:{"x-subject-id":selectedSubject,"x-teacher-key":teacherKey},
+    body: formData
+  });
+  if (res.ok) {
+    const d = await res.json();
+    showToast(`✅ File uploaded: ${d.filename} (${d.chunks} chunks)`);
+    selectedFile = null;
+    document.getElementById("file-name").textContent="";
+    document.getElementById("upload-file-btn").disabled=true;
+    document.getElementById("file-input").value="";
+    await loadDocs(); await loadStats();
+  } else {
+    const err = await res.json().catch(()=>({}));
+    showToast("Error: " + (err.detail || "Upload failed"));
+  }
+  setStatus("Ready");
+}
+
+// ── Load Docs ──────────────────────────────────────────────────────────────
+async function loadDocs() {
+  const res = await fetch("/api/curriculum", {
+    headers:{"x-subject-id":selectedSubject,"x-teacher-key":teacherKey}
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  const list = document.getElementById("doc-list");
+  document.getElementById("doc-count").textContent = data.total + " docs";
+
+  // Update subject card count
+  const sdocs = document.getElementById("sdocs_" + selectedSubject);
+  if (sdocs) sdocs.textContent = data.total + " docs";
+
+  if (!data.documents.length) {
+    list.innerHTML = `<div style="color:var(--subtle);font-size:13px;text-align:center;padding:20px">
+      No documents yet. Upload curriculum above ↑</div>`;
+    return;
+  }
+  list.innerHTML = data.documents.map(d => `
+    <div class="doc-item">
+      <span class="doc-icon">${DOCTYPE_ICONS[d.doc_type]||"📝"}</span>
+      <div class="doc-info">
+        <div class="doc-title">${escHtml(d.title)}</div>
+        <div class="doc-meta">${d.chunk_count} chunks · ${d.created_at}</div>
+      </div>
+      <span class="doc-badge badge-${d.doc_type}">${d.doc_type}</span>
+      <button class="del-btn" onclick="deleteDoc('${d.id}')" title="Delete">🗑</button>
+    </div>`).join("");
+}
+
+async function deleteDoc(id) {
+  if (!confirm("Delete this document?")) return;
+  const res = await fetch(`/api/curriculum/${id}`, {
+    method:"DELETE",
+    headers:{"x-subject-id":selectedSubject,"x-teacher-key":teacherKey}
+  });
+  if (res.ok) { showToast("Deleted"); await loadDocs(); await loadStats(); }
+  else showToast("Delete failed");
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function escHtml(t) {
+  return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function setStatus(msg) { document.getElementById("status-msg").textContent = msg; }
+let toastT;
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove("show"), 2800);
+}
+</script>
+</body>
+</html>
