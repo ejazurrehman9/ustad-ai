@@ -1,16 +1,114 @@
 import os
 import asyncio
+import itertools
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from groq import Groq
+import groq as groq_module
+import google.generativeai as genai
 
 from app.persona import EDUCATOR_PERSONA
 from app.rag import add_document, search, list_documents, delete_document
 from app.session import get_history, save_exchange, clear_session, session_count
 
 router = APIRouter()
+
+# ─────────────────────────────────────────────
+# AI Client Setup — Gemini Primary, Groq Fallback
+# ─────────────────────────────────────────────
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+GROQ_KEYS = [k.strip() for k in os.getenv("GROQ_API_KEYS", os.getenv("GROQ_API_KEY", "")).split(",") if k.strip()]
+_groq_key_cycle = itertools.cycle(GROQ_KEYS) if GROQ_KEYS else iter([])
+
+def _get_groq_client():
+    if not GROQ_KEYS:
+        raise ValueError("No Groq API keys configured")
+    return Groq(api_key=next(_groq_key_cycle))
+
+def _call_gemini(messages: list, max_tokens: int = 1500) -> str:
+    """Call Gemini API. messages = [{"role": ..., "content": ...}]"""
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=next((m["content"] for m in messages if m["role"] == "system"), None)
+    )
+    history = []
+    for m in messages:
+        if m["role"] == "system":
+            continue
+        role = "user" if m["role"] == "user" else "model"
+        history.append({"role": role, "parts": [m["content"]]})
+
+    # Last user message is the actual prompt
+    if not history:
+        return ""
+    last = history.pop()
+    chat = model.start_chat(history=history)
+    resp = chat.send_message(last["parts"][0], generation_config={"max_output_tokens": max_tokens})
+    return resp.text
+
+def _call_ai(messages: list, max_tokens: int = 1500) -> str:
+    """Try Gemini first, fallback to Groq on error."""
+    if GEMINI_KEY:
+        try:
+            return _call_gemini(messages, max_tokens)
+        except Exception as e:
+            print(f"[Gemini error, falling back to Groq]: {e}")
+    # Groq fallback
+    client = _get_groq_client()
+    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+        try:
+            resp = client.chat.completions.create(
+                model=model, max_tokens=max_tokens, messages=messages
+            )
+            return resp.choices[0].message.content
+        except groq_module.RateLimitError:
+            continue
+    return "⚠️ Abhi server busy hai. Thodi der mein dobara try karein."
+
+def _stream_ai(messages: list, max_tokens: int = 1500):
+    """Generator: Try Gemini streaming first, fallback to Groq."""
+    if GEMINI_KEY:
+        try:
+            genai.configure(api_key=GEMINI_KEY)
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                system_instruction=next((m["content"] for m in messages if m["role"] == "system"), None)
+            )
+            history = []
+            for m in messages:
+                if m["role"] == "system":
+                    continue
+                role = "user" if m["role"] == "user" else "model"
+                history.append({"role": role, "parts": [m["content"]]})
+            if history:
+                last = history.pop()
+                chat = model.start_chat(history=history)
+                for chunk in chat.send_message(last["parts"][0], stream=True,
+                                               generation_config={"max_output_tokens": max_tokens}):
+                    if chunk.text:
+                        yield chunk.text
+                return
+        except Exception as e:
+            print(f"[Gemini stream error, falling back to Groq]: {e}")
+
+    # Groq fallback with model rotation
+    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+        try:
+            client = _get_groq_client()
+            s = client.chat.completions.create(
+                model=model, max_tokens=max_tokens, messages=messages, stream=True
+            )
+            for chunk in s:
+                text = chunk.choices[0].delta.content or ""
+                if text:
+                    yield text
+            return
+        except groq_module.RateLimitError:
+            continue
+    yield "⚠️ Abhi server busy hai. Thodi der mein dobara try karein."
 
 # ─────────────────────────────────────────────
 # Subject Registry
@@ -214,13 +312,8 @@ A: [1-line answer]
 
 ...up to Q15."""
 
-    client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-    resp = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return {"subject": x_subject_id, "questions": resp.choices[0].message.content}
+    result = _call_ai([{"role": "user", "content": prompt}], max_tokens=1500)
+    return {"subject": x_subject_id, "questions": result}
 
 
 @router.post("/chat")
@@ -236,22 +329,13 @@ async def chat_stream(
     system = await _build_system(x_subject_id, req.message, quiz_mode)
 
     messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": req.message}]
-    client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
 
     full_reply_parts: List[str] = []
 
     def stream():
-        s = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            max_tokens=1500,
-            messages=messages,
-            stream=True,
-        )
-        for chunk in s:
-            text = chunk.choices[0].delta.content or ""
-            if text:
-                full_reply_parts.append(text)
-                yield text
+        for text in _stream_ai(messages, max_tokens=1500):
+            full_reply_parts.append(text)
+            yield text
 
     async def save_after():
         await asyncio.sleep(0.1)
@@ -271,19 +355,12 @@ async def chat_simple(req: ChatRequest, x_subject_id: str = Header(default="it-1
     messages = history + [{"role": "user", "content": req.message}]
 
     messages = [{"role": "system", "content": system}] + messages
-    client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-    resp = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=1500,
-        messages=messages,
-    )
-    reply = resp.choices[0].message.content
+    reply = _call_ai(messages, max_tokens=1500)
     save_exchange(session_id, req.message, reply)
     return {
         "reply": reply,
         "subject": x_subject_id,
         "session_id": session_id,
-        "tokens": resp.usage.input_tokens + resp.usage.output_tokens,
     }
 
 
