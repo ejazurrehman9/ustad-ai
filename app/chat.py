@@ -16,6 +16,12 @@ from app.session import get_history, save_exchange, clear_session, session_count
 router = APIRouter()
 
 # ─────────────────────────────────────────────
+# Model Definitions
+# ─────────────────────────────────────────────
+GEMINI_MODEL = "gemini-2.5-flash"
+GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+# ─────────────────────────────────────────────
 # AI Client Setup — Gemini Primary, Groq Fallback
 # ─────────────────────────────────────────────
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -28,10 +34,10 @@ def _get_groq_client():
     return Groq(api_key=next(_groq_key_cycle))
 
 def _call_gemini(messages: list, max_tokens: int = 1500) -> str:
-    """Call Gemini API. messages = [{"role": ..., "content": ...}]"""
+    """Call Gemini API using updated model."""
     genai.configure(api_key=GEMINI_KEY)
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name=GEMINI_MODEL,
         system_instruction=next((m["content"] for m in messages if m["role"] == "system"), None)
     )
     history = []
@@ -56,15 +62,19 @@ def _call_ai(messages: list, max_tokens: int = 1500) -> str:
             return _call_gemini(messages, max_tokens)
         except Exception as e:
             print(f"[Gemini error, falling back to Groq]: {e}")
+            
     # Groq fallback
     client = _get_groq_client()
-    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+    for model in GROQ_MODELS:
         try:
             resp = client.chat.completions.create(
                 model=model, max_tokens=max_tokens, messages=messages
             )
             return resp.choices[0].message.content
         except groq_module.RateLimitError:
+            continue
+        except Exception as e:
+            print(f"[Groq model {model} error]: {e}")
             continue
     return "⚠️ Abhi server busy hai. Thodi der mein dobara try karein."
 
@@ -74,7 +84,7 @@ def _stream_ai(messages: list, max_tokens: int = 1500):
         try:
             genai.configure(api_key=GEMINI_KEY)
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name=GEMINI_MODEL,
                 system_instruction=next((m["content"] for m in messages if m["role"] == "system"), None)
             )
             history = []
@@ -95,7 +105,7 @@ def _stream_ai(messages: list, max_tokens: int = 1500):
             print(f"[Gemini stream error, falling back to Groq]: {e}")
 
     # Groq fallback with model rotation
-    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+    for model in GROQ_MODELS:
         try:
             client = _get_groq_client()
             s = client.chat.completions.create(
@@ -107,6 +117,9 @@ def _stream_ai(messages: list, max_tokens: int = 1500):
                     yield text
             return
         except groq_module.RateLimitError:
+            continue
+        except Exception as e:
+            print(f"[Groq stream model {model} error]: {e}")
             continue
     yield "⚠️ Abhi server busy hai. Thodi der mein dobara try karein."
 
@@ -202,7 +215,7 @@ Reference specific chapter or practical numbers when answering.
     if _is_practical_request(user_msg):
         practical_block = """
 
-⚠️  PRACTICAL TASK DETECTED — EXTRA RULES:
+⚠️ PRACTICAL TASK DETECTED — EXTRA RULES:
 The student is asking about a practical task or assignment.
 - NEVER write the complete task for them.
 - Guide them step-by-step.
