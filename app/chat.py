@@ -16,10 +16,10 @@ from app.session import get_history, save_exchange, clear_session, session_count
 router = APIRouter()
 
 # ─────────────────────────────────────────────
-# Model Definitions
+# Model Definitions (Updated for Stability)
 # ─────────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.5-flash"
-GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+GEMINI_MODEL = "gemini-1.5-flash"
+GROQ_MODELS = ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768"]
 
 # ─────────────────────────────────────────────
 # AI Client Setup — Gemini Primary, Groq Fallback
@@ -47,7 +47,6 @@ def _call_gemini(messages: list, max_tokens: int = 1500) -> str:
         role = "user" if m["role"] == "user" else "model"
         history.append({"role": role, "parts": [m["content"]]})
 
-    # Last user message is the actual prompt
     if not history:
         return ""
     last = history.pop()
@@ -64,18 +63,17 @@ def _call_ai(messages: list, max_tokens: int = 1500) -> str:
             print(f"[Gemini error, falling back to Groq]: {e}")
             
     # Groq fallback
-    client = _get_groq_client()
-    for model in GROQ_MODELS:
-        try:
-            resp = client.chat.completions.create(
-                model=model, max_tokens=max_tokens, messages=messages
-            )
-            return resp.choices[0].message.content
-        except groq_module.RateLimitError:
-            continue
-        except Exception as e:
-            print(f"[Groq model {model} error]: {e}")
-            continue
+    if GROQ_KEYS:
+        for model in GROQ_MODELS:
+            try:
+                client = _get_groq_client()
+                resp = client.chat.completions.create(
+                    model=model, max_tokens=max_tokens, messages=messages
+                )
+                return resp.choices[0].message.content
+            except Exception as e:
+                print(f"[Groq model {model} error]: {e}")
+                continue
     return "⚠️ Abhi server busy hai. Thodi der mein dobara try karein."
 
 def _stream_ai(messages: list, max_tokens: int = 1500):
@@ -104,23 +102,23 @@ def _stream_ai(messages: list, max_tokens: int = 1500):
         except Exception as e:
             print(f"[Gemini stream error, falling back to Groq]: {e}")
 
-    # Groq fallback with model rotation
-    for model in GROQ_MODELS:
-        try:
-            client = _get_groq_client()
-            s = client.chat.completions.create(
-                model=model, max_tokens=max_tokens, messages=messages, stream=True
-            )
-            for chunk in s:
-                text = chunk.choices[0].delta.content or ""
-                if text:
-                    yield text
-            return
-        except groq_module.RateLimitError:
-            continue
-        except Exception as e:
-            print(f"[Groq stream model {model} error]: {e}")
-            continue
+    # Groq fallback with safe loop error catching
+    if GROQ_KEYS:
+        for model in GROQ_MODELS:
+            try:
+                client = _get_groq_client()
+                s = client.chat.completions.create(
+                    model=model, max_tokens=max_tokens, messages=messages, stream=True
+                )
+                for chunk in s:
+                    text = chunk.choices[0].delta.content or ""
+                    if text:
+                        yield text
+                return
+            except Exception as e:
+                print(f"[Groq stream model {model} error]: {e}")
+                continue
+                
     yield "⚠️ Abhi server busy hai. Thodi der mein dobara try karein."
 
 # ─────────────────────────────────────────────
@@ -148,7 +146,6 @@ VIVA_KEYWORDS = {
     "name the", "list the", "how many", "kitne",
 }
 
-
 # ─────────────────────────────────────────────
 # Models
 # ─────────────────────────────────────────────
@@ -170,7 +167,6 @@ class CurriculumTextRequest(BaseModel):
     title: str
     content: str
     doc_type: Optional[str] = "lecture"
-
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -280,7 +276,6 @@ START: Ask Q1 immediately. No greeting, no explanation.
 
     return EDUCATOR_PERSONA.format(**cfg) + curriculum_block + practical_block + viva_block + quiz_block
 
-
 # ─────────────────────────────────────────────
 # Student: Chat
 # ─────────────────────────────────────────────
@@ -328,7 +323,6 @@ A: [1-line answer]
     result = _call_ai([{"role": "user", "content": prompt}], max_tokens=1500)
     return {"subject": x_subject_id, "questions": result}
 
-
 @router.post("/chat")
 async def chat_stream(
     req: ChatRequest,
@@ -342,7 +336,6 @@ async def chat_stream(
     system = await _build_system(x_subject_id, req.message, quiz_mode)
 
     messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": req.message}]
-
     full_reply_parts: List[str] = []
 
     def stream():
@@ -357,7 +350,6 @@ async def chat_stream(
     response = StreamingResponse(stream(), media_type="text/plain")
     asyncio.create_task(save_after())
     return response
-
 
 @router.post("/chat/ask")
 async def chat_simple(req: ChatRequest, x_subject_id: str = Header(default="it-101")):
@@ -376,13 +368,11 @@ async def chat_simple(req: ChatRequest, x_subject_id: str = Header(default="it-1
         "session_id": session_id,
     }
 
-
 @router.delete("/chat/session/{session_id}")
 async def clear_student_session(session_id: str):
     """Clear a student's conversation history."""
     clear_session(session_id)
     return {"cleared": True, "session_id": session_id}
-
 
 # ─────────────────────────────────────────────
 # Teacher: Curriculum Management (protected)
@@ -404,7 +394,6 @@ async def upload_text(
         "chunks": doc["chunk_count"],
         "message": f"'{req.title}' added. Students can now ask about it.",
     }
-
 
 @router.post("/curriculum/upload-file")
 async def upload_file(
@@ -431,7 +420,6 @@ async def upload_file(
         "chunks": doc["chunk_count"],
     }
 
-
 @router.get("/curriculum")
 async def list_docs(
     x_subject_id: str = Header(default="it-101"),
@@ -441,7 +429,6 @@ async def list_docs(
     _verify_teacher_key(x_teacher_key)
     docs = list_documents(x_subject_id)
     return {"subject": x_subject_id, "total": len(docs), "documents": docs}
-
 
 @router.delete("/curriculum/{doc_id}")
 async def delete_doc(
@@ -455,7 +442,6 @@ async def delete_doc(
     if not ok:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"deleted": True, "doc_id": doc_id}
-
 
 # ─────────────────────────────────────────────
 # Subject Registry
@@ -474,7 +460,6 @@ async def create_subject(
     }
     return {"status": "created", "slug": req.slug}
 
-
 @router.get("/subjects")
 async def get_subjects():
     """List all registered subjects (public)."""
@@ -484,7 +469,6 @@ async def get_subjects():
             for k, v in SUBJECTS.items()
         ]
     }
-
 
 # ─────────────────────────────────────────────
 # Stats
